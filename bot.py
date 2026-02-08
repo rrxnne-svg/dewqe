@@ -19,7 +19,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 BOT_TOKEN = "7987974434:AAErdwEztIpkUH4MPVuWKtLytM-aeqmW0qs"
 ADMIN_ID = 7388744796
-CHANNEL_ID = "@YAKMODS"
+CHANNEL_ID = "@testyakbott"
 
 START_IMAGE = "https://images-ext-1.discordapp.net/external/VYxjKWsWfuy15MhjbNSdZTAnAw7ncsq0QzRpea-7fnA/https/i.pinimg.com/736x/e2/6f/ad/e26fadfad4179906f627b7cbc253f559.jpg?format=webp&width=662&height=617"
 
