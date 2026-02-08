@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import asyncio
 import uuid
 import logging
@@ -6,7 +7,8 @@ from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
     Message, CallbackQuery,
-    InlineKeyboardMarkup, InlineKeyboardButton
+    InlineKeyboardMarkup, InlineKeyboardButton,
+    ReplyKeyboardMarkup, KeyboardButton
 )
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -23,14 +25,12 @@ BOT_TOKEN = "7987974434:AAErdwEztIpkUH4MPVuWKtLytM-aeqmW0qs"
 ADMIN_ID = 7388744796
 CHANNELS = {
     "main": "@YAKMODS",
-    "updates": "@YAKMODS_UPDATES",  # Добавьте свои каналы
-    "news": "@YAKMODS_NEWS"
 }
 
-START_IMAGE = "https://cdn.discordapp.com/attachments/1044207552512135229/1470085336360026308/5D53110C-27D1-420C-BC26-0D4F7779F784.png"
+START_IMAGE = "https://i.pinimg.com/736x/af/44/72/af4472a3b826bf0fdbab074deca37431.jpg"
 
-SUGGESTION_COOLDOWN = 300  # 5 минут в секундах
-MAX_SUGGESTIONS_PER_USER = 3  # Максимум предложений до бана
+SUGGESTION_COOLDOWN = 60  # 5 минут в секундах
+MAX_SUGGESTIONS_PER_USER = 10  # Максимум предложений до бана
 
 # Настройка логирования
 logging.basicConfig(
@@ -84,11 +84,7 @@ def main_menu():
     """Главное меню для всех пользователей"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📂 Список модов", callback_data="mods_list")],
-        [InlineKeyboardButton(text="💡 Предложить идею", callback_data="suggest_idea")],
-        [
-            InlineKeyboardButton(text="💬 Discord", url="https://discord.gg/yakfamq"),
-            InlineKeyboardButton(text="📢 Telegram", url="https://t.me/YAKMODS")
-        ]
+        [InlineKeyboardButton(text="💡 Предложить идею", callback_data="suggest_idea")]
     ])
 
 
@@ -96,7 +92,8 @@ def admin_menu():
     """Меню администратора"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Добавить пост", callback_data="add_post")],
-        [InlineKeyboardButton(text="📊 Статистика", callback_data="stats")],
+        [InlineKeyboardButton(text="� Управление модами", callback_data="manage_mods")],
+        [InlineKeyboardButton(text="�📊 Статистика", callback_data="stats")],
         [InlineKeyboardButton(text="📂 Список модов", callback_data="mods_list")],
         [InlineKeyboardButton(text="💡 Предложить идею", callback_data="suggest_idea")]
     ])
@@ -136,10 +133,13 @@ def subscribe_keyboard(post_id, required_channels):
     """Клавиатура проверки подписки"""
     buttons = []
     for channel in required_channels:
-        channel_name = CHANNELS.get(channel, channel)
+        # Если это уже с @, используем как есть, иначе добавляем @
+        channel_name = channel if channel.startswith("@") else "@" + channel
+        channel_username = channel_name.lstrip("@")
+        
         buttons.append([InlineKeyboardButton(
             text=f"📢 Подписаться на {channel_name}",
-            url=f"https://t.me/{channel_name[1:]}"
+            url=f"https://t.me/{channel_username}"
         )])
     buttons.append([InlineKeyboardButton(
         text="✅ Проверить подписку",
@@ -198,15 +198,20 @@ async def check_subscription(user_id: int, required_channels: list = None) -> tu
     
     not_subscribed = []
     
-    for channel_key in required_channels:
-        channel_id = CHANNELS.get(channel_key, CHANNELS["main"])
+    for channel in required_channels:
+        # Если это ключ из CHANNELS, берем значение, иначе используем как есть
+        if channel in CHANNELS:
+            channel_id = CHANNELS[channel]
+        else:
+            channel_id = channel if channel.startswith("@") else "@" + channel
+        
         try:
             member = await bot.get_chat_member(channel_id, user_id)
             if member.status not in ["member", "creator", "administrator"]:
-                not_subscribed.append(channel_key)
+                not_subscribed.append(channel)
         except TelegramBadRequest as e:
             logger.error(f"Ошибка проверки подписки на {channel_id}: {e}")
-            not_subscribed.append(channel_key)
+            not_subscribed.append(channel)
     
     return len(not_subscribed) == 0, not_subscribed
 
@@ -282,8 +287,8 @@ async def start_handler(message: Message):
     
     text = (
         "🔥 <b>YAKMODS</b>\n\n"
-        "🔗 Discord: <a href='https://discord.gg/yakfamq'>YAKFAMQ</a>\n"
-        "📢 Telegram: <a href='https://t.me/YAKMODS'>YAKMODS</a>"
+        "📂 Добро пожаловать в хранилище модов!\n\n"
+        "📂 Просмотрите нашу коллекцию модов и загружайте их прямо отсюда."
     )
 
     try:
@@ -312,8 +317,8 @@ async def back_to_menu(call: CallbackQuery):
     """Возврат в главное меню"""
     text = (
         "🔥 <b>YAKMODS</b>\n\n"
-        "🔗 Discord: <a href='https://discord.gg/yakfamq'>YAKFAMQ</a>\n"
-        "📢 Telegram: <a href='https://t.me/YAKMODS'>YAKMODS</a>"
+        "� Добро пожаловать в хранилище модов!\n\n"
+        "📂 Просмотрите нашу коллекцию модов и загружайте их прямо отсюда."
     )
     
     try:
@@ -468,6 +473,7 @@ async def process_photo(message: Message, state: FSMContext):
     photo_id = message.photo[-1].file_id
     await state.update_data(photo=photo_id)
     await state.set_state(AddPost.title)
+    
     await message.answer("📝 Введите название поста:")
 
 
@@ -485,6 +491,7 @@ async def process_title(message: Message, state: FSMContext):
     
     await state.update_data(title=message.text)
     await state.set_state(AddPost.file)
+    
     await message.answer(
         "📦 Отправьте файл (документ) или ссылку для скачивания:\n\n"
         "💡 Совет: Для ссылок используйте прямые ссылки на файлы"
@@ -511,81 +518,73 @@ async def process_file(message: Message, state: FSMContext):
     await state.update_data(**data)
     await state.set_state(AddPost.channels)
     
-    # Показываем выбор каналов
+    # Показываем информацию о вводе каналов
     await message.answer(
-        "📢 <b>Выберите каналы для публикации:</b>\n\n"
-        "Нажмите на каналы, в которые хотите опубликовать пост.\n"
-        "После выбора нажмите 'Продолжить'.",
-        reply_markup=channels_selection_menu()
+        "📢 <b>Укажите каналы для публикации</b>\n\n"
+        "Напишите названия каналов через пробел.\n"
+        "Можно указывать с @ или без:\n"
+        "Пример: @YAKMODS\n"
+        
     )
+
+
+@dp.message(AddPost.channels)
+async def process_channels(message: Message, state: FSMContext):
+    """Обработка выбора каналов"""
+    text = message.text.strip()
+    data = await state.get_data()
     
-    # Инициализируем выбранные каналы
-    await state.update_data(selected_channels=[], required_channels=['main'])
+    selected_channels = []
+    
+    # Проверяем "все" для стандартных каналов
+    if text.lower() == "все":
+        selected_channels = list(CHANNELS.values())
+    else:
+        # Парсим введённые каналы
+        channel_names = text.split()
+        for channel_name in channel_names:
+            # Убираем @ если есть и приводим к правильному формату
+            channel_name = channel_name.strip()
+            if not channel_name.startswith("@"):
+                channel_name = "@" + channel_name
+            
+            # Проверяем что это похоже на валидный канал
+            if len(channel_name) < 2 or not channel_name[1:].replace("_", "").isalnum():
+                return await message.answer(
+                    f"❌ Некорректный формат канала: <code>{channel_name}</code>\n\n"
+                    "Канал должен содержать буквы, цифры и подчеркивания.\n"
+                    "Пример: @my_channel или my_channel"
+                )
+            
+            selected_channels.append(channel_name)
+    
+    if not selected_channels:
+        return await message.answer(
+            "❌ Вы не указали ни одного канала!\n\n"
+            "Напишите названия каналов через пробел, например:\n"
+            "@YAKMODS "
+        )
+    
+    await state.update_data(selected_channels=selected_channels, required_channels=selected_channels)
+    await state.set_state(AddPost.notify)
+    
+    await message.answer(
+        f"✅ <b>Выбранные каналы:</b>\n{', '.join(selected_channels)}\n\n"
+        "📬 <b>Уведомить всех пользователей о новом посте?</b>",
+        reply_markup=notify_menu()
+    )
 
 
 @dp.callback_query(F.data.startswith("channel_"), AddPost.channels)
 async def toggle_channel(call: CallbackQuery, state: FSMContext):
-    """Переключение выбора канала"""
-    channel_key = call.data.replace("channel_", "")
-    data = await state.get_data()
-    
-    selected = data.get('selected_channels', [])
-    required = data.get('required_channels', ['main'])
-    
-    # Переключаем канал для публикации
-    if channel_key in selected:
-        selected.remove(channel_key)
-    else:
-        selected.append(channel_key)
-    
-    # Обновляем также required каналы (для подписки)
-    if channel_key in required:
-        if len(required) > 1:  # Оставляем хотя бы один канал
-            required.remove(channel_key)
-    else:
-        required.append(channel_key)
-    
-    await state.update_data(selected_channels=selected, required_channels=required)
-    
-    # Обновляем клавиатуру
-    buttons = []
-    for ch_key, ch_name in CHANNELS.items():
-        emoji = "✅" if ch_key in selected else "☑️"
-        buttons.append([InlineKeyboardButton(
-            text=f"{emoji} {ch_name}",
-            callback_data=f"channel_{ch_key}"
-        )])
-    buttons.append([InlineKeyboardButton(text="✅ Продолжить", callback_data="channels_done")])
-    buttons.append([InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_post")])
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    
-    try:
-        await call.message.edit_reply_markup(reply_markup=kb)
-    except:
-        pass
-    
-    await call.answer()
+    """Обработчик отключен - используется текстовый ввод"""
+    await call.answer("Используйте текстовый ввод для выбора каналов", show_alert=True)
 
 
 @dp.callback_query(F.data == "channels_done", AddPost.channels)
 async def channels_done(call: CallbackQuery, state: FSMContext):
-    """Завершение выбора каналов"""
-    data = await state.get_data()
-    selected = data.get('selected_channels', [])
-    
-    if not selected:
-        return await call.answer("❌ Выберите хотя бы один канал!", show_alert=True)
-    
-    await state.set_state(AddPost.notify)
-    
-    channel_names = [CHANNELS[ch] for ch in selected]
-    await call.message.answer(
-        f"📢 <b>Выбранные каналы:</b>\n{', '.join(channel_names)}\n\n"
-        "📬 <b>Уведомить всех пользователей о новом посте?</b>",
-        reply_markup=notify_menu()
-    )
-    await call.answer()
+    """Обработчик отключен - используется текстовый ввод"""
+    await call.answer("Используйте текстовый ввод для выбора каналов", show_alert=True)
 
 
 @dp.callback_query(F.data.startswith("notify_"), AddPost.notify)
@@ -603,6 +602,11 @@ async def process_notify(call: CallbackQuery, state: FSMContext):
     posts[post_id] = data
     await state.update_data(**data)
     
+    try:
+        await call.message.delete()
+    except:
+        pass
+    
     # Показываем превью
     bot_username = (await bot.get_me()).username
     preview_kb = download_keyboard(bot_username, post_id)
@@ -614,7 +618,12 @@ async def process_notify(call: CallbackQuery, state: FSMContext):
         caption += f"\n\n📦 Файл: {data['file_name']}\n💾 Размер: {file_size_mb:.2f} МБ"
     
     selected_channels = data.get('selected_channels', [])
-    channel_names = [CHANNELS[ch] for ch in selected_channels]
+    
+    # Проверяем наличие фото
+    if "photo" not in data:
+        await call.answer("❌ Фото не найдено! Начните создание поста с начала.", show_alert=True)
+        await state.clear()
+        return
     
     await call.message.answer_photo(
         data["photo"],
@@ -626,7 +635,7 @@ async def process_notify(call: CallbackQuery, state: FSMContext):
     
     await call.message.answer(
         "📋 <b>Предпросмотр поста</b>\n\n"
-        f"📢 Каналы: {', '.join(channel_names)}\n"
+        f"📢 Каналы: {', '.join(selected_channels)}\n"
         f"📬 Уведомления: {notify_text}\n\n"
         "Проверьте все данные и выберите действие:",
         reply_markup=confirm_menu()
@@ -653,20 +662,23 @@ async def confirm_publication(call: CallbackQuery, state: FSMContext):
     published_count = 0
     
     # Публикуем в выбранные каналы
-    for channel_key in selected_channels:
-        channel_id = CHANNELS.get(channel_key)
-        if channel_id:
-            try:
-                await bot.send_photo(
-                    channel_id,
-                    photo=data["photo"],
-                    caption=caption,
-                    reply_markup=kb
-                )
-                published_count += 1
-                logger.info(f"Пост {post_id} опубликован в {channel_id}")
-            except Exception as e:
-                logger.error(f"Ошибка публикации в {channel_id}: {e}")
+    for channel_name in selected_channels:
+        # Если это ключ из CHANNELS, берем значение, иначе используем как есть
+        if channel_name in CHANNELS:
+            channel_id = CHANNELS[channel_name]
+        else:
+            channel_id = channel_name if channel_name.startswith("@") else "@" + channel_name
+        
+        try:
+            await bot.send_photo(
+                channel_id,
+                photo=data["photo"],
+                caption=caption,
+                reply_markup=kb
+            )
+            published_count += 1
+        except Exception as e:
+            logger.error(f"Ошибка публикации в {channel_id}: {e}")
     
     # Уведомляем пользователей если нужно
     if data.get('notify_users', False):
@@ -721,11 +733,44 @@ async def edit_post(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     post_id = data.get("post_id")
     
-    if post_id and post_id in posts:
-        del posts[post_id]
+    if not post_id or post_id not in posts:
+        await call.message.answer(
+            "❌ Ошибка: пост не найден",
+            reply_markup=admin_menu()
+        )
+        return await call.answer()
     
+    # Переходим на редактирование конкретного поста
     await state.clear()
-    await call.message.answer("🔄 Начните создание поста заново:", reply_markup=admin_menu())
+    await state.update_data(edit_post_id=post_id, is_editing=True)
+    
+    post = posts[post_id]
+    
+    # Показываем информацию о моде
+    info = f"""
+📋 <b>Редактирование мода</b>
+
+📝 Название: <code>{post.get('title', 'N/A')}</code>
+📦 Тип: {'Файл' if 'file' in post else 'Ссылка'}
+📢 Каналы: {', '.join(post.get('selected_channels', []))}
+⬇️ Скачиваний: {post.get('downloads', 0)}
+
+Выберите что редактировать:
+""".strip()
+    
+    buttons = [
+        [InlineKeyboardButton(text="✏️ Название", callback_data=f"edit_title_{post_id}")],
+        [InlineKeyboardButton(text="📦 Файл/Ссылка", callback_data=f"edit_file_{post_id}")],
+        [InlineKeyboardButton(text="📢 Каналы", callback_data=f"edit_channels_{post_id}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="back_to_menu")]
+    ]
+    
+    try:
+        await call.message.delete()
+    except:
+        pass
+    
+    await call.message.answer(info, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     await call.answer()
 
 
@@ -744,8 +789,502 @@ async def cancel_post(call: CallbackQuery, state: FSMContext):
 
 
 # =====================
-# СТАТИСТИКА
+# УПРАВЛЕНИЕ МОДАМИ
 # =====================
+
+@dp.callback_query(F.data == "manage_mods")
+async def manage_mods(call: CallbackQuery):
+    """Управление модами"""
+    if not is_admin(call.from_user.id):
+        return await call.answer("❌ Доступ запрещен", show_alert=True)
+    
+    if not posts:
+        try:
+            await call.message.delete()
+        except:
+            pass
+        
+        await call.message.answer(
+            "📂 <b>Управление модами</b>\n\n"
+            "Нет доступных модов для управления.",
+            reply_markup=admin_menu()
+        )
+        return await call.answer()
+    
+    # Показываем список модов с опциями
+    buttons = []
+    for post_id, post_data in list(posts.items())[:10]:  # Первые 10
+        title = post_data.get('title', 'Без названия')[:20]  # Обрезаем название
+        buttons.append([
+            InlineKeyboardButton(text=f"✏️ {title}", callback_data=f"edit_mod_{post_id}"),
+            InlineKeyboardButton(text="🗑️", callback_data=f"delete_mod_{post_id}")
+        ])
+    
+    buttons.append([InlineKeyboardButton(text="🏠 Меню", callback_data="back_to_menu")])
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    total = len(posts)
+    
+    try:
+        await call.message.edit_text(
+            f"📂 <b>Управление модами</b>\n\n"
+            f"Всего модов: {total}\n\n"
+            "Нажмите на кнопки для редактирования или удаления:",
+            reply_markup=kb
+        )
+    except:
+        await call.message.answer(
+            f"📂 <b>Управление модами</b>\n\n"
+            f"Всего модов: {total}\n\n"
+            "Нажмите на кнопки для редактирования или удаления:",
+            reply_markup=kb
+        )
+    
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("delete_mod_"))
+async def delete_mod(call: CallbackQuery):
+    """Удаление мода"""
+    if not is_admin(call.from_user.id):
+        return await call.answer("❌ Доступ запрещен", show_alert=True)
+    
+    post_id = call.data.replace("delete_mod_", "")
+    
+    if post_id not in posts:
+        return await call.answer("❌ Мод не найден", show_alert=True)
+    
+    post_title = posts[post_id].get('title', 'Неизвестный мод')
+    del posts[post_id]
+    
+    try:
+        await call.message.delete()
+    except:
+        pass
+    
+    await call.message.answer(
+        f"✅ <b>Мод удален!</b>\n\n"
+        f"Название: <code>{post_title}</code>\n\n"
+        f"Всего модов осталось: {len(posts)}",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📂 К управлению", callback_data="manage_mods")],
+            [InlineKeyboardButton(text="🏠 Меню", callback_data="back_to_menu")]
+        ])
+    )
+    await call.answer("🗑️ Мод успешно удален!")
+
+
+@dp.callback_query(F.data.startswith("edit_mod_"))
+async def edit_mod_start(call: CallbackQuery, state: FSMContext):
+    """Начало редактирования мода"""
+    if not is_admin(call.from_user.id):
+        return await call.answer("❌ Доступ запрещен", show_alert=True)
+    
+    post_id = call.data.replace("edit_mod_", "")
+    
+    if post_id not in posts:
+        return await call.answer("❌ Мод не найден", show_alert=True)
+    
+    post = posts[post_id]
+    
+    # Показываем информацию о моде
+    info = f"""
+📋 <b>Редактирование мода</b>
+
+📝 Название: <code>{post.get('title', 'N/A')}</code>
+📦 Тип: {'Файл' if 'file' in post else 'Ссылка'}
+📢 Каналы: {', '.join(post.get('selected_channels', []))}
+⬇️ Скачиваний: {post.get('downloads', 0)}
+
+Выберите что редактировать:
+""".strip()
+    
+    buttons = [
+        [InlineKeyboardButton(text="✏️ Название", callback_data=f"edit_title_{post_id}")],
+        [InlineKeyboardButton(text="📦 Файл/Ссылка", callback_data=f"edit_file_{post_id}")],
+        [InlineKeyboardButton(text="📢 Каналы", callback_data=f"edit_channels_{post_id}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel_edit_{post_id}")]
+    ]
+    
+    try:
+        await call.message.delete()
+    except:
+        pass
+    
+    await call.message.answer(info, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await state.update_data(edit_post_id=post_id)
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("cancel_edit_"))
+async def cancel_edit(call: CallbackQuery, state: FSMContext):
+    """Отмена редактирования и возврат в меню управления модом"""
+    post_id = call.data.replace("cancel_edit_", "")
+    
+    if post_id not in posts:
+        return await call.answer("❌ Мод не найден", show_alert=True)
+    
+    await state.clear()
+    
+    post = posts[post_id]
+    
+    # Показываем информацию о моде снова
+    info = f"""
+📋 <b>Редактирование мода</b>
+
+📝 Название: <code>{post.get('title', 'N/A')}</code>
+📦 Тип: {'Файл' if 'file' in post else 'Ссылка'}
+📢 Каналы: {', '.join(post.get('selected_channels', []))}
+⬇️ Скачиваний: {post.get('downloads', 0)}
+
+Выберите что редактировать:
+""".strip()
+    
+    buttons = [
+        [InlineKeyboardButton(text="✏️ Название", callback_data=f"edit_title_{post_id}")],
+        [InlineKeyboardButton(text="📦 Файл/Ссылка", callback_data=f"edit_file_{post_id}")],
+        [InlineKeyboardButton(text="📢 Каналы", callback_data=f"edit_channels_{post_id}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel_edit_{post_id}")]
+    ]
+    
+    try:
+        await call.message.edit_text(
+            info,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+        )
+    except:
+        await call.message.answer(
+            info,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+        )
+    
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("edit_title_"))
+async def edit_title_start(call: CallbackQuery, state: FSMContext):
+    """Редактирование названия"""
+    post_id = call.data.replace("edit_title_", "")
+    
+    await state.update_data(edit_post_id=post_id, edit_action="title")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена редактирования", callback_data=f"cancel_edit_{post_id}")]
+    ])
+    
+    await call.message.answer(
+        "📝 <b>Введите новое название для мода:</b>\n\n"
+        "(максимум 200 символов)",
+        reply_markup=kb
+    )
+    await state.set_state(AddPost.title)
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("edit_file_"))
+async def edit_file_start(call: CallbackQuery, state: FSMContext):
+    """Редактирование файла/ссылки"""
+    post_id = call.data.replace("edit_file_", "")
+    
+    await state.update_data(edit_post_id=post_id, edit_action="file")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="❌ Отмена редактирования", callback_data=f"cancel_edit_{post_id}")]
+    ])
+    
+    await call.message.answer(
+        "📦 <b>Отправьте новый файл или ссылку:</b>\n\n"
+        "Вы можете отправить документ или текстовую ссылку для скачивания.",
+        reply_markup=kb
+    )
+    await state.set_state(AddPost.file)
+    await call.answer()
+
+
+@dp.callback_query(F.data.startswith("edit_channels_"))
+async def edit_channels_start(call: CallbackQuery, state: FSMContext):
+    """Редактирование каналов"""
+    post_id = call.data.replace("edit_channels_", "")
+    
+    await state.update_data(edit_post_id=post_id, edit_action="channels")
+    
+    # Создаём клавиатуру с кнопкой отмены
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Отмена")]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+    
+    await call.message.answer(
+        "📢 <b>Укажите новые каналы для публикации</b>\n\n"
+        "Напишите названия каналов через пробел.\n"
+        "Пример: @YAKMODS \n\n"
+        "Или напишите 'все' для всех стандартных каналов.",
+        reply_markup=kb
+    )
+    await state.set_state(AddPost.channels)
+    await state.update_data(edit_post_id=post_id)
+    await call.answer()
+
+
+@dp.message(AddPost.title)
+async def process_edit_title(message: Message, state: FSMContext):
+    """Сохранение отредактированного названия"""
+    data = await state.get_data()
+    
+    if data.get('edit_action') == "title":
+        post_id = data.get('edit_post_id')
+        
+        if post_id and post_id in posts:
+            if len(message.text) > 200:
+                return await message.answer("❌ Название слишком длинное (макс. 200 символов)")
+            
+            old_title = posts[post_id].get('title', '')
+            posts[post_id]['title'] = message.text
+            
+            # Отправляем обновленный пост
+            post = posts[post_id]
+            bot_username = (await bot.get_me()).username
+            preview_kb = download_keyboard(bot_username, post_id)
+            
+            caption = f"🔥 <b>{post['title']}</b>\n\n📥 Нажмите кнопку для скачивания"
+            
+            if "file" in post:
+                file_size_mb = post['file_size'] / (1024 * 1024)
+                caption += f"\n\n📦 Файл: {post['file_name']}\n💾 Размер: {file_size_mb:.2f} МБ"
+            elif "link" in post:
+                caption += f"\n\n🔗 Ссылка: {post['link']}"
+            
+            selected_channels = post.get('selected_channels', [])
+            
+            await message.answer_photo(
+                post["photo"],
+                caption=caption,
+                reply_markup=preview_kb
+            )
+            
+            await message.answer(
+                f"✅ <b>Название обновлено!</b>\n\n"
+                f"Было: <code>{old_title}</code>\n"
+                f"Стало: <code>{message.text}</code>\n\n"
+                f"📢 Каналы: {', '.join(selected_channels)}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📂 К управлению", callback_data="manage_mods")],
+                    [InlineKeyboardButton(text="🏠 Меню", callback_data="back_to_menu")]
+                ])
+            )
+        
+        await state.clear()
+    else:
+        # Это создание нового поста (обычный процесс)
+        await state.update_data(title=message.text)
+        await state.set_state(AddPost.file)
+        await message.answer(
+            "📦 Отправьте файл (документ) или ссылку для скачивания:\n\n"
+            "💡 Совет: Для ссылок используйте прямые ссылки на файлы"
+        )
+
+
+@dp.message(AddPost.file)
+async def process_edit_file(message: Message, state: FSMContext):
+    """Сохранение отредактированного файла"""
+    data = await state.get_data()
+    
+    if data.get('edit_action') == "file":
+        post_id = data.get('edit_post_id')
+        
+        if post_id and post_id in posts:
+            # Сохраняем файл или ссылку
+            if message.document:
+                posts[post_id]["file"] = message.document.file_id
+                posts[post_id]["file_name"] = message.document.file_name
+                posts[post_id]["file_size"] = message.document.file_size
+                file_type = "документ"
+            elif message.text:
+                if not message.text.startswith(("http://", "https://")):
+                    return await message.answer("❌ Ссылка должна начинаться с http:// или https://")
+                posts[post_id]["link"] = message.text
+                file_type = "ссылка"
+            else:
+                return await message.answer("❌ Отправьте документ или текстовую ссылку!")
+            
+            # Отправляем обновленный пост
+            post = posts[post_id]
+            bot_username = (await bot.get_me()).username
+            preview_kb = download_keyboard(bot_username, post_id)
+            
+            caption = f"🔥 <b>{post['title']}</b>\n\n📥 Нажмите кнопку для скачивания"
+            
+            if "file" in post:
+                file_size_mb = post['file_size'] / (1024 * 1024)
+                caption += f"\n\n📦 Файл: {post['file_name']}\n💾 Размер: {file_size_mb:.2f} МБ"
+            elif "link" in post:
+                caption += f"\n\n🔗 Ссылка: {post['link']}"
+            
+            await message.answer_photo(
+                post["photo"],
+                caption=caption,
+                reply_markup=preview_kb
+            )
+            
+            await message.answer(
+                f"✅ <b>Файл обновлен!</b>\n\n"
+                f"Тип: {file_type}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📂 К управлению", callback_data="manage_mods")],
+                    [InlineKeyboardButton(text="🏠 Меню", callback_data="back_to_menu")]
+                ])
+            )
+        
+        await state.clear()
+    else:
+        # Это создание нового поста (обычный процесс)
+        if message.document:
+            data["file"] = message.document.file_id
+            data["file_name"] = message.document.file_name
+            data["file_size"] = message.document.file_size
+        elif message.text:
+            if not message.text.startswith(("http://", "https://")):
+                return await message.answer("❌ Ссылка должна начинаться с http:// или https://")
+            data["link"] = message.text
+        else:
+            return await message.answer("❌ Отправьте документ или текстовую ссылку!")
+        
+        await state.update_data(**data)
+        await state.set_state(AddPost.channels)
+        
+        await message.answer(
+            "📢 <b>Укажите каналы для публикации</b>\n\n"
+            "Напишите названия каналов через пробел.\n"
+            "Можно указывать с @ или без:\n"
+            "Пример: @YAKMODS \n"
+            "или: YAKMODS\n\n"
+            "Или напишите 'все' для публикации во все стандартные каналы."
+        )
+
+
+@dp.message(AddPost.channels)
+async def process_edit_channels(message: Message, state: FSMContext):
+    """Сохранение отредактированных каналов"""
+    data = await state.get_data()
+    text = message.text.strip()
+    
+    # Проверяем нажата ли кнопка отмены
+    if text == "❌ Отмена":
+        post_id = data.get('edit_post_id')
+        if post_id and post_id in posts:
+            await state.clear()
+            
+            post = posts[post_id]
+            
+            # Показываем информацию о моде снова
+            info = f"""
+📋 <b>Редактирование мода</b>
+
+📝 Название: <code>{post.get('title', 'N/A')}</code>
+📦 Тип: {'Файл' if 'file' in post else 'Ссылка'}
+📢 Каналы: {', '.join(post.get('selected_channels', []))}
+⬇️ Скачиваний: {post.get('downloads', 0)}
+
+Выберите что редактировать:
+""".strip()
+            
+            buttons = [
+                [InlineKeyboardButton(text="✏️ Название", callback_data=f"edit_title_{post_id}")],
+                [InlineKeyboardButton(text="📦 Файл/Ссылка", callback_data=f"edit_file_{post_id}")],
+                [InlineKeyboardButton(text="📢 Каналы", callback_data=f"edit_channels_{post_id}")],
+                [InlineKeyboardButton(text="❌ Отмена", callback_data=f"cancel_edit_{post_id}")]
+            ]
+            
+            kb = ReplyKeyboardMarkup(remove_keyboard=True)
+            
+            await message.answer(
+                info,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
+            )
+            return
+    
+    selected_channels = []
+    
+    # Проверяем "все" для стандартных каналов
+    if text.lower() == "все":
+        selected_channels = list(CHANNELS.values())
+    else:
+        # Парсим введённые каналы
+        channel_names = text.split()
+        for channel_name in channel_names:
+            # Убираем @ если есть и приводим к правильному формату
+            channel_name = channel_name.strip()
+            if not channel_name.startswith("@"):
+                channel_name = "@" + channel_name
+            
+            # Проверяем что это похоже на валидный канал
+            if len(channel_name) < 2 or not channel_name[1:].replace("_", "").isalnum():
+                return await message.answer(
+                    f"❌ Некорректный формат канала: <code>{channel_name}</code>\n\n"
+                    "Канал должен содержать буквы, цифры и подчеркивания.\n"
+                    "Пример: @my_channel или my_channel"
+                )
+            
+            selected_channels.append(channel_name)
+    
+    if not selected_channels:
+        return await message.answer(
+            "❌ Вы не указали ни одного канала!\n\n"
+            "Напишите названия каналов через пробел, например:\n"
+            "@YAKMODS"
+        )
+    
+    # Если это редактирование постова мода
+    if data.get('edit_action') == "channels":
+        post_id = data.get('edit_post_id')
+        
+        if post_id and post_id in posts:
+            old_channels = posts[post_id].get('selected_channels', [])
+            posts[post_id]['selected_channels'] = selected_channels
+            posts[post_id]['required_channels'] = selected_channels
+            
+            # Отправляем обновленный пост
+            post = posts[post_id]
+            bot_username = (await bot.get_me()).username
+            preview_kb = download_keyboard(bot_username, post_id)
+            
+            caption = f"🔥 <b>{post['title']}</b>\n\n📥 Нажмите кнопку для скачивания"
+            
+            if "file" in post:
+                file_size_mb = post['file_size'] / (1024 * 1024)
+                caption += f"\n\n📦 Файл: {post['file_name']}\n💾 Размер: {file_size_mb:.2f} МБ"
+            elif "link" in post:
+                caption += f"\n\n🔗 Ссылка: {post['link']}"
+            
+            await message.answer_photo(
+                post["photo"],
+                caption=caption,
+                reply_markup=preview_kb
+            )
+            
+            await message.answer(
+                f"✅ <b>Каналы обновлены!</b>\n\n"
+                f"Новые каналы: {', '.join(selected_channels)}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="📂 К управлению", callback_data="manage_mods")],
+                    [InlineKeyboardButton(text="🏠 Меню", callback_data="back_to_menu")]
+                ])
+            )
+        
+        await state.clear()
+    else:
+        # Это создание нового поста (обычный процесс)
+        await state.update_data(selected_channels=selected_channels, required_channels=selected_channels)
+        await state.set_state(AddPost.notify)
+        
+        await message.answer(
+            f"✅ <b>Выбранные каналы:</b>\n{', '.join(selected_channels)}\n\n"
+            "📬 <b>Уведомить всех пользователей о новом посте?</b>",
+            reply_markup=notify_menu()
+        )
+
 
 @dp.callback_query(F.data == "stats")
 async def show_stats(call: CallbackQuery):
@@ -876,8 +1415,6 @@ async def process_suggestion(message: Message, state: FSMContext):
             "Вы получите уведомление о решении."
         )
         
-        logger.info(f"Предложение {suggestion_id} от пользователя {user_id}")
-        
     except Exception as e:
         logger.error(f"Ошибка отправки предложения: {e}")
         await message.answer("❌ Ошибка отправки. Попробуйте позже.")
@@ -964,8 +1501,6 @@ async def process_review_comment(message: Message, state: FSMContext):
         # Подтверждаем админу
         await message.answer(admin_text, reply_markup=admin_menu())
         
-        logger.info(f"Предложение {suggestion_id} {action} администратором")
-        
     except Exception as e:
         logger.error(f"Ошибка обработки решения: {e}")
         await message.answer("❌ Ошибка отправки ответа пользователю")
@@ -1049,14 +1584,12 @@ async def send_file_to_user(message: Message, post: dict):
                 post["file"],
                 caption=f"✅ <b>{post['title']}</b>\n\n💎 Спасибо за использование YAKMODS!"
             )
-            logger.info(f"Файл отправлен пользователю {message.from_user.id}")
         else:
             await message.answer(
                 f"📦 <b>{post['title']}</b>\n\n"
                 f"🔗 Ссылка для скачивания:\n{post['link']}\n\n"
                 "💎 Спасибо за использование YAKMODS!"
             )
-            logger.info(f"Ссылка отправлена пользователю {message.from_user.id}")
     except Exception as e:
         logger.error(f"Ошибка отправки файла: {e}")
         await message.answer(
@@ -1083,7 +1616,7 @@ async def unknown_message(message: Message):
     else:
         await message.answer(
             "ℹ️ Используйте команду /start\n\n"
-            "💎 YAKMODS - лучшие моды для ваших игр!",
+            "💎 YAKMODS -  лучшие моды!",
             reply_markup=main_menu()
         )
 
@@ -1113,17 +1646,159 @@ async def main():
     dp.shutdown.register(on_shutdown)
     
     try:
-        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())import asyncio
+import uuid
+import logging
+import time
+from datetime import datetime, timedelta
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import (
+    Message, CallbackQuery,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
+
+# =====================
+# НАСТРОЙКИ
+# =====================
+
+BOT_TOKEN = "7987974434:AAErdwEztIpkUH4MPVuWKtLytM-aeqmW0qs"
+ADMIN_ID = 7388744796
+CHANNELS = {
+    "main": "@YAKMODS",import asyncio
+import uuid
+import logging
+import time
+from datetime import datetime, timedelta
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import (
+    Message, CallbackQuery,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
+
+# =====================
+# НАСТРОЙКИ
+# =====================
+
+BOT_TOKEN = "7987974434:AAErdwEztIpkUH4MPVuWKtLytM-aeqmW0qs"
+ADMIN_ID = 7388744796
+CHANNELS = {
+    "main": "@YAKMODS",import asyncio
+import uuid
+import logging
+import time
+from datetime import datetime, timedelta
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import (
+    Message, CallbackQuery,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
+
+# =====================
+# НАСТРОЙКИ
+# =====================
+
+BOT_TOKEN = "7987974434:AAErdwEztIpkUH4MPVuWKtLytM-aeqmW0qs"
+ADMIN_ID = 7388744796
+CHANNELS = {
+    "main": "@YAKMODS",
+    "updates": "@YAKMODS_UPDATES",  # Добавьте свои каналы
+    "news": "@YAKMODS_NEWS"
+}
+
+START_IMAGE = "https://cdn.discordapp.com/attachments/1044207552512135229/1470085336360026308/5D53110C-27D1-420C-BC26-0D4F7779F784.png"
+
+SUGGESTION_COOLDOWN = 300  # 5 минут в секундах
+MAX_SUGGESTIONS_PER_USER = 3  # Максимум предложений до бана
+
+# Настройка логирования
+logging.basicConfig(
+
+    "updates": "@YAKMODS_UPDATES",  # Добавьте свои каналы
+    "news": "@YAKMODS_NEWS"
+}
+
+START_IMAGE = "https://cdn.discordapp.com/attachments/1044207552512135229/1470085336360026308/5D53110C-27D1-420C-BC26-0D4F7779F784.png"
+
+SUGGESTION_COOLDOWN = 300  # 5 минут в секундах
+MAX_SUGGESTIONS_PER_USER = 3  # Максимум предложений до бана
+
+# Настройка логирования
+logging.basicConfig(
+
+    "updates": "@YAKMODS_UPDATES",  # Добавьте свои каналы
+    "news": "@YAKMODS_NEWS"
+}
+
+START_IMAGE = "https://cdn.discordapp.com/attachments/1044207552512135229/1470085336360026308/5D53110C-27D1-420C-BC26-0D4F7779F784.png"
+
+SUGGESTION_COOLDOWN = 300  # 5 минут в секундах
+MAX_SUGGESTIONS_PER_USER = 3  # Максимум предложений до бана
+
+# Настройка логирования
+logging.basicConfig(
+
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}")
     finally:
         await bot.session.close()
 
+import asyncio
+import uuid
+import logging
+import time
+from datetime import datetime, timedelta
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import (
+    Message, CallbackQuery,
+    InlineKeyboardMarkup, InlineKeyboardButton
+)
+from aiogram.enums import ParseMode
+from aiogram.client.default import DefaultBotProperties
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.filters import Command
+from aiogram.exceptions import TelegramBadRequest
+
+# =====================
+# НАСТРОЙКИ
+# =====================
+
+BOT_TOKEN = "7987974434:AAErdwEztIpkUH4MPVuWKtLytM-aeqmW0qs"
+ADMIN_ID = 7388744796
+CHANNELS = {
+    "main": "@YAKMODS",
+    "updates": "@YAKMODS_UPDATES",  # Добавьте свои каналы
+    "news": "@YAKMODS_NEWS"
+}
+
+START_IMAGE = "https://cdn.discordapp.com/attachments/1044207552512135229/1470085336360026308/5D53110C-27D1-420C-BC26-0D4F7779F784.png"
+
+SUGGESTION_COOLDOWN = 300  # 5 минут в секундах
+MAX_SUGGESTIONS_PER_USER = 3  # Максимум предложений до бана
+
+# Настройка логирования
+logging.basicConfig(
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Бот остановлен пользователем")
-
-
