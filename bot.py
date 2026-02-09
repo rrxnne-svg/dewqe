@@ -2,7 +2,6 @@ import asyncio
 import uuid
 import logging
 import time
-import os
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F
 from aiogram.types import (
@@ -20,21 +19,18 @@ from aiogram.exceptions import TelegramBadRequest
 # НАСТРОЙКИ
 # =====================
 
-# Получаем данные из переменных окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 7388744796
-
-# Каналы из переменных окружения
 CHANNELS = {
-    "main": os.getenv("CHANNEL_MAIN", "@YAKMODS"),
-    "updates": os.getenv("CHANNEL_UPDATES", "@YAKMODS_UPDATES"),
-    "news": os.getenv("CHANNEL_NEWS", "@YAKMODS_NEWS")
+    "main": "@YAKMODS",
+    "updates": "@YAKMODS_UPDATES",  # Добавьте свои каналы
+    "news": "@YAKMODS_NEWS"
 }
 
-START_IMAGE = os.getenv("START_IMAGE", "https://cdn.discordapp.com/attachments/1044207552512135229/1470085336360026308/5D53110C-27D1-420C-BC26-0D4F7779F784.png")
+START_IMAGE = "https://cdn.discordapp.com/attachments/1044207552512135229/1470085336360026308/5D53110C-27D1-420C-BC26-0D4F7779F784.png"
 
-SUGGESTION_COOLDOWN = int(os.getenv("SUGGESTION_COOLDOWN", "300"))
-MAX_SUGGESTIONS_PER_USER = int(os.getenv("MAX_SUGGESTIONS_PER_USER", "3"))
+SUGGESTION_COOLDOWN = 300  # 5 минут в секундах
+MAX_SUGGESTIONS_PER_USER = 3  # Максимум предложений до бана
 
 # Настройка логирования
 logging.basicConfig(
@@ -45,15 +41,6 @@ logger = logging.getLogger(__name__)
 
 # =====================
 
-# Проверка наличия обязательных переменных
-if not BOT_TOKEN:
-    logger.error("❌ BOT_TOKEN не установлен!")
-    raise ValueError("BOT_TOKEN обязателен для запуска бота")
-
-if ADMIN_ID == 0:
-    logger.error("❌ ADMIN_ID не установлен!")
-    raise ValueError("ADMIN_ID обязателен для запуска бота")
-
 bot = Bot(
     token=BOT_TOKEN,
     default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -62,11 +49,11 @@ bot = Bot(
 dp = Dispatcher()
 
 # Хранилища данных
-posts = {}
-users = set()
-banned_users = set()
-suggestion_cooldowns = {}
-suggestion_violations = {}
+posts = {}  # {post_id: {data, downloads: 0}}
+users = set()  # Все пользователи
+banned_users = set()  # Забаненные пользователи
+suggestion_cooldowns = {}  # {user_id: last_time}
+suggestion_violations = {}  # {user_id: count}
 
 
 # =====================
@@ -94,6 +81,7 @@ class ReviewSuggestion(StatesGroup):
 # =====================
 
 def main_menu():
+    """Главное меню для всех пользователей"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📂 Список модов", callback_data="mods_list")],
         [InlineKeyboardButton(text="💡 Предложить идею", callback_data="suggest_idea")],
@@ -105,6 +93,7 @@ def main_menu():
 
 
 def admin_menu():
+    """Меню администратора"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="➕ Добавить пост", callback_data="add_post")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="stats")],
@@ -114,6 +103,7 @@ def admin_menu():
 
 
 def channels_selection_menu():
+    """Меню выбора каналов"""
     buttons = []
     for channel_key, channel_name in CHANNELS.items():
         buttons.append([InlineKeyboardButton(
@@ -126,6 +116,7 @@ def channels_selection_menu():
 
 
 def notify_menu():
+    """Меню уведомлений"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Да, уведомить всех", callback_data="notify_yes")],
         [InlineKeyboardButton(text="❌ Нет, не уведомлять", callback_data="notify_no")]
@@ -133,6 +124,7 @@ def notify_menu():
 
 
 def confirm_menu():
+    """Меню подтверждения публикации"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Опубликовать", callback_data="confirm_post")],
         [InlineKeyboardButton(text="🔄 Изменить", callback_data="edit_post")],
@@ -141,6 +133,7 @@ def confirm_menu():
 
 
 def subscribe_keyboard(post_id, required_channels):
+    """Клавиатура проверки подписки"""
     buttons = []
     for channel in required_channels:
         channel_name = CHANNELS.get(channel, channel)
@@ -156,6 +149,7 @@ def subscribe_keyboard(post_id, required_channels):
 
 
 def download_keyboard(bot_username, post_id):
+    """Кнопка скачивания"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(
             text="⬇️ Скачать",
@@ -165,10 +159,32 @@ def download_keyboard(bot_username, post_id):
 
 
 def suggestion_review_menu(suggestion_id):
+    """Меню для проверки предложения"""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"approve_{suggestion_id}")],
         [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"reject_{suggestion_id}")]
     ])
+
+
+def mods_pagination(page=0, total_pages=1):
+    """Пагинация списка модов"""
+    buttons = []
+    nav_buttons = []
+    
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data=f"page_{page-1}"))
+    
+    nav_buttons.append(InlineKeyboardButton(text=f"{page+1}/{total_pages}", callback_data="page_info"))
+    
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton(text="▶️", callback_data=f"page_{page+1}"))
+    
+    if nav_buttons:
+        buttons.append(nav_buttons)
+    
+    buttons.append([InlineKeyboardButton(text="🏠 Главное меню", callback_data="back_to_menu")])
+    
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # =====================
@@ -176,6 +192,7 @@ def suggestion_review_menu(suggestion_id):
 # =====================
 
 async def check_subscription(user_id: int, required_channels: list = None) -> tuple:
+    """Проверяет подписку пользователя на указанные каналы"""
     if required_channels is None:
         required_channels = ["main"]
     
@@ -195,14 +212,16 @@ async def check_subscription(user_id: int, required_channels: list = None) -> tu
 
 
 # =====================
-# Вспомогательные функции
+# Проверка бана
 # =====================
 
 def is_banned(user_id: int) -> bool:
+    """Проверяет, забанен ли пользователь"""
     return user_id in banned_users
 
 
 def check_suggestion_cooldown(user_id: int) -> tuple:
+    """Проверяет кулдаун на предложения"""
     if user_id in suggestion_cooldowns:
         last_time = suggestion_cooldowns[user_id]
         time_passed = time.time() - last_time
@@ -215,6 +234,7 @@ def check_suggestion_cooldown(user_id: int) -> tuple:
 
 
 def add_suggestion_violation(user_id: int):
+    """Добавляет нарушение за спам предложениями"""
     if user_id not in suggestion_violations:
         suggestion_violations[user_id] = 0
     
@@ -227,7 +247,12 @@ def add_suggestion_violation(user_id: int):
     return False
 
 
+# =====================
+# Проверка прав администратора
+# =====================
+
 def is_admin(user_id: int) -> bool:
+    """Проверяет, является ли пользователь администратором"""
     return user_id == ADMIN_ID
 
 
@@ -237,9 +262,11 @@ def is_admin(user_id: int) -> bool:
 
 @dp.message(Command("start"))
 async def start_handler(message: Message):
+    """Обработчик команды /start"""
     user_id = message.from_user.id
     users.add(user_id)
     
+    # Проверка бана
     if is_banned(user_id):
         return await message.answer(
             "🚫 <b>Вы заблокированы</b>\n\n"
@@ -247,6 +274,7 @@ async def start_handler(message: Message):
             "Обратитесь к администратору для разблокировки."
         )
     
+    # Обработка deep link для скачивания
     if len(message.text.split()) > 1:
         args = message.text.split()[1]
         if args.startswith("download_"):
@@ -260,9 +288,17 @@ async def start_handler(message: Message):
 
     try:
         if is_admin(user_id):
-            await message.answer_photo(START_IMAGE, caption=text, reply_markup=admin_menu())
+            await message.answer_photo(
+                START_IMAGE,
+                caption=text,
+                reply_markup=admin_menu()
+            )
         else:
-            await message.answer_photo(START_IMAGE, caption=text, reply_markup=main_menu())
+            await message.answer_photo(
+                START_IMAGE,
+                caption=text,
+                reply_markup=main_menu()
+            )
     except Exception as e:
         logger.error(f"Ошибка отправки стартового сообщения: {e}")
         if is_admin(user_id):
@@ -273,6 +309,7 @@ async def start_handler(message: Message):
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu(call: CallbackQuery):
+    """Возврат в главное меню"""
     text = (
         "🔥 <b>YAKMODS</b>\n\n"
         "🔗 Discord: <a href='https://discord.gg/yakfamq'>YAKFAMQ</a>\n"
@@ -281,9 +318,15 @@ async def back_to_menu(call: CallbackQuery):
     
     try:
         if is_admin(call.from_user.id):
-            await call.message.edit_caption(caption=text, reply_markup=admin_menu())
+            await call.message.edit_caption(
+                caption=text,
+                reply_markup=admin_menu()
+            )
         else:
-            await call.message.edit_caption(caption=text, reply_markup=main_menu())
+            await call.message.edit_caption(
+                caption=text,
+                reply_markup=main_menu()
+            )
     except:
         if is_admin(call.from_user.id):
             await call.message.answer(text, reply_markup=admin_menu())
@@ -299,6 +342,7 @@ async def back_to_menu(call: CallbackQuery):
 
 @dp.callback_query(F.data == "mods_list")
 async def show_mods_list(call: CallbackQuery):
+    """Показывает список всех модов"""
     if is_banned(call.from_user.id):
         return await call.answer("🚫 Вы заблокированы", show_alert=True)
     
@@ -312,6 +356,7 @@ async def show_mods_list(call: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("page_"))
 async def page_navigation(call: CallbackQuery):
+    """Навигация по страницам модов"""
     if call.data == "page_info":
         return await call.answer()
     
@@ -321,6 +366,7 @@ async def page_navigation(call: CallbackQuery):
 
 
 async def show_mods_page(message: Message, page: int, edit: bool = False):
+    """Отображает страницу со списком модов"""
     posts_list = list(posts.items())
     posts_per_page = 5
     total_pages = (len(posts_list) + posts_per_page - 1) // posts_per_page
@@ -343,6 +389,7 @@ async def show_mods_page(message: Message, page: int, edit: bool = False):
             callback_data=f"get_mod_{post_id}"
         )])
     
+    # Добавляем навигацию
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton(text="◀️", callback_data=f"page_{page-1}"))
@@ -370,6 +417,7 @@ async def show_mods_page(message: Message, page: int, edit: bool = False):
 
 @dp.callback_query(F.data.startswith("get_mod_"))
 async def get_mod_details(call: CallbackQuery):
+    """Показывает детали мода и отправляет его"""
     if is_banned(call.from_user.id):
         return await call.answer("🚫 Вы заблокированы", show_alert=True)
     
@@ -379,6 +427,7 @@ async def get_mod_details(call: CallbackQuery):
     if not post:
         return await call.answer("❌ Мод не найден", show_alert=True)
     
+    # Проверка подписки
     required_channels = post.get('required_channels', ['main'])
     is_subscribed, missing = await check_subscription(call.from_user.id, required_channels)
     
@@ -390,7 +439,10 @@ async def get_mod_details(call: CallbackQuery):
         )
         return await call.answer()
     
+    # Увеличиваем счетчик скачиваний
     post['downloads'] = post.get('downloads', 0) + 1
+    
+    # Отправляем мод
     await send_file_to_user(call.message, post)
     await call.answer("✅ Мод отправлен!")
 
@@ -401,6 +453,7 @@ async def get_mod_details(call: CallbackQuery):
 
 @dp.callback_query(F.data == "add_post")
 async def add_post_start(call: CallbackQuery, state: FSMContext):
+    """Начало процесса добавления поста"""
     if not is_admin(call.from_user.id):
         return await call.answer("❌ Доступ запрещен", show_alert=True)
     
@@ -411,6 +464,7 @@ async def add_post_start(call: CallbackQuery, state: FSMContext):
 
 @dp.message(AddPost.photo, F.photo)
 async def process_photo(message: Message, state: FSMContext):
+    """Обработка фото поста"""
     photo_id = message.photo[-1].file_id
     await state.update_data(photo=photo_id)
     await state.set_state(AddPost.title)
@@ -419,11 +473,13 @@ async def process_photo(message: Message, state: FSMContext):
 
 @dp.message(AddPost.photo)
 async def invalid_photo(message: Message):
+    """Обработка неверного формата"""
     await message.answer("❌ Пожалуйста, отправьте фото!")
 
 
 @dp.message(AddPost.title)
 async def process_title(message: Message, state: FSMContext):
+    """Обработка названия поста"""
     if len(message.text) > 200:
         return await message.answer("❌ Название слишком длинное (макс. 200 символов)")
     
@@ -437,8 +493,10 @@ async def process_title(message: Message, state: FSMContext):
 
 @dp.message(AddPost.file)
 async def process_file(message: Message, state: FSMContext):
+    """Обработка файла или ссылки"""
     data = await state.get_data()
     
+    # Сохраняем файл или ссылку
     if message.document:
         data["file"] = message.document.file_id
         data["file_name"] = message.document.file_name
@@ -453,6 +511,7 @@ async def process_file(message: Message, state: FSMContext):
     await state.update_data(**data)
     await state.set_state(AddPost.channels)
     
+    # Показываем выбор каналов
     await message.answer(
         "📢 <b>Выберите каналы для публикации:</b>\n\n"
         "Нажмите на каналы, в которые хотите опубликовать пост.\n"
@@ -460,30 +519,35 @@ async def process_file(message: Message, state: FSMContext):
         reply_markup=channels_selection_menu()
     )
     
+    # Инициализируем выбранные каналы
     await state.update_data(selected_channels=[], required_channels=['main'])
 
 
 @dp.callback_query(F.data.startswith("channel_"), AddPost.channels)
 async def toggle_channel(call: CallbackQuery, state: FSMContext):
+    """Переключение выбора канала"""
     channel_key = call.data.replace("channel_", "")
     data = await state.get_data()
     
     selected = data.get('selected_channels', [])
     required = data.get('required_channels', ['main'])
     
+    # Переключаем канал для публикации
     if channel_key in selected:
         selected.remove(channel_key)
     else:
         selected.append(channel_key)
     
+    # Обновляем также required каналы (для подписки)
     if channel_key in required:
-        if len(required) > 1:
+        if len(required) > 1:  # Оставляем хотя бы один канал
             required.remove(channel_key)
     else:
         required.append(channel_key)
     
     await state.update_data(selected_channels=selected, required_channels=required)
     
+    # Обновляем клавиатуру
     buttons = []
     for ch_key, ch_name in CHANNELS.items():
         emoji = "✅" if ch_key in selected else "☑️"
@@ -506,6 +570,7 @@ async def toggle_channel(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "channels_done", AddPost.channels)
 async def channels_done(call: CallbackQuery, state: FSMContext):
+    """Завершение выбора каналов"""
     data = await state.get_data()
     selected = data.get('selected_channels', [])
     
@@ -525,6 +590,7 @@ async def channels_done(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("notify_"), AddPost.notify)
 async def process_notify(call: CallbackQuery, state: FSMContext):
+    """Обработка выбора уведомлений"""
     notify = call.data == "notify_yes"
     await state.update_data(notify_users=notify)
     
@@ -533,9 +599,11 @@ async def process_notify(call: CallbackQuery, state: FSMContext):
     data["post_id"] = post_id
     data["downloads"] = 0
     
+    # Сохраняем пост
     posts[post_id] = data
     await state.update_data(**data)
     
+    # Показываем превью
     bot_username = (await bot.get_me()).username
     preview_kb = download_keyboard(bot_username, post_id)
     
@@ -548,7 +616,11 @@ async def process_notify(call: CallbackQuery, state: FSMContext):
     selected_channels = data.get('selected_channels', [])
     channel_names = [CHANNELS[ch] for ch in selected_channels]
     
-    await call.message.answer_photo(data["photo"], caption=caption, reply_markup=preview_kb)
+    await call.message.answer_photo(
+        data["photo"],
+        caption=caption,
+        reply_markup=preview_kb
+    )
     
     notify_text = "✅ Да" if notify else "❌ Нет"
     
@@ -565,6 +637,7 @@ async def process_notify(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "confirm_post")
 async def confirm_publication(call: CallbackQuery, state: FSMContext):
+    """Публикация поста в каналы"""
     if not is_admin(call.from_user.id):
         return await call.answer("❌ Доступ запрещен", show_alert=True)
     
@@ -579,16 +652,23 @@ async def confirm_publication(call: CallbackQuery, state: FSMContext):
     selected_channels = data.get('selected_channels', [])
     published_count = 0
     
+    # Публикуем в выбранные каналы
     for channel_key in selected_channels:
         channel_id = CHANNELS.get(channel_key)
         if channel_id:
             try:
-                await bot.send_photo(channel_id, photo=data["photo"], caption=caption, reply_markup=kb)
+                await bot.send_photo(
+                    channel_id,
+                    photo=data["photo"],
+                    caption=caption,
+                    reply_markup=kb
+                )
                 published_count += 1
                 logger.info(f"Пост {post_id} опубликован в {channel_id}")
             except Exception as e:
                 logger.error(f"Ошибка публикации в {channel_id}: {e}")
     
+    # Уведомляем пользователей если нужно
     if data.get('notify_users', False):
         notified = await notify_all_users(data, post_id)
         await call.message.answer(
@@ -611,6 +691,7 @@ async def confirm_publication(call: CallbackQuery, state: FSMContext):
 
 
 async def notify_all_users(post_data, post_id):
+    """Уведомляет всех пользователей о новом посте"""
     bot_username = (await bot.get_me()).username
     kb = download_keyboard(bot_username, post_id)
     
@@ -620,9 +701,14 @@ async def notify_all_users(post_data, post_id):
     for user_id in users:
         if user_id != ADMIN_ID and not is_banned(user_id):
             try:
-                await bot.send_photo(user_id, photo=post_data["photo"], caption=caption, reply_markup=kb)
+                await bot.send_photo(
+                    user_id,
+                    photo=post_data["photo"],
+                    caption=caption,
+                    reply_markup=kb
+                )
                 notified += 1
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.05)  # Защита от флуда
             except Exception as e:
                 logger.error(f"Не удалось уведомить пользователя {user_id}: {e}")
     
@@ -631,6 +717,7 @@ async def notify_all_users(post_data, post_id):
 
 @dp.callback_query(F.data == "edit_post")
 async def edit_post(call: CallbackQuery, state: FSMContext):
+    """Редактирование поста"""
     data = await state.get_data()
     post_id = data.get("post_id")
     
@@ -644,6 +731,7 @@ async def edit_post(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "cancel_post")
 async def cancel_post(call: CallbackQuery, state: FSMContext):
+    """Отмена создания поста"""
     data = await state.get_data()
     post_id = data.get("post_id")
     
@@ -661,11 +749,13 @@ async def cancel_post(call: CallbackQuery, state: FSMContext):
 
 @dp.callback_query(F.data == "stats")
 async def show_stats(call: CallbackQuery):
+    """Показывает статистику бота"""
     if not is_admin(call.from_user.id):
         return await call.answer("❌ Доступ запрещен", show_alert=True)
     
     total_downloads = sum(post.get('downloads', 0) for post in posts.values())
     
+    # Топ 5 модов по скачиваниям
     top_mods = sorted(posts.items(), key=lambda x: x[1].get('downloads', 0), reverse=True)[:5]
     top_text = "\n".join([f"{i+1}. {post['title']}: {post.get('downloads', 0)} ⬇️" 
                           for i, (_, post) in enumerate(top_mods)])
@@ -690,11 +780,13 @@ async def show_stats(call: CallbackQuery):
 
 @dp.callback_query(F.data == "suggest_idea")
 async def suggest_idea_start(call: CallbackQuery, state: FSMContext):
+    """Начало процесса предложения идеи"""
     user_id = call.from_user.id
     
     if is_banned(user_id):
         return await call.answer("🚫 Вы заблокированы за спам предложениями", show_alert=True)
     
+    # Проверка кулдауна
     can_suggest, remaining = check_suggestion_cooldown(user_id)
     
     if not can_suggest:
@@ -717,8 +809,10 @@ async def suggest_idea_start(call: CallbackQuery, state: FSMContext):
 
 @dp.message(Suggestion.waiting_text)
 async def process_suggestion(message: Message, state: FSMContext):
+    """Обработка предложения"""
     user_id = message.from_user.id
     
+    # Проверка кулдауна еще раз
     can_suggest, remaining = check_suggestion_cooldown(user_id)
     
     if not can_suggest:
@@ -734,11 +828,16 @@ async def process_suggestion(message: Message, state: FSMContext):
         
         minutes = remaining // 60
         seconds = remaining % 60
-        return await message.answer(f"⏳ Слишком быстро! Подождите {minutes}м {seconds}с")
+        return await message.answer(
+            f"⏳ Слишком быстро! Подождите {minutes}м {seconds}с"
+        )
     
+    # Сохраняем время последнего предложения
     suggestion_cooldowns[user_id] = time.time()
+    
     suggestion_id = str(uuid.uuid4())
     
+    # Формируем сообщение админу
     user_mention = message.from_user.mention_html()
     suggestion_text = (
         f"💡 <b>Новое предложение #{suggestion_id[:8]}</b>\n\n"
@@ -747,6 +846,7 @@ async def process_suggestion(message: Message, state: FSMContext):
         f"📝 <b>Текст:</b>\n{message.text or message.caption or 'Нет текста'}"
     )
     
+    # Отправляем админу
     try:
         if message.photo:
             await bot.send_photo(
@@ -762,6 +862,7 @@ async def process_suggestion(message: Message, state: FSMContext):
                 reply_markup=suggestion_review_menu(suggestion_id)
             )
         
+        # Сохраняем предложение
         await state.update_data(
             suggestion_id=suggestion_id,
             user_id=user_id,
@@ -786,6 +887,7 @@ async def process_suggestion(message: Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("approve_"))
 async def approve_suggestion(call: CallbackQuery, state: FSMContext):
+    """Одобрение предложения"""
     suggestion_id = call.data.replace("approve_", "")
     
     await state.update_data(
@@ -795,12 +897,16 @@ async def approve_suggestion(call: CallbackQuery, state: FSMContext):
     )
     await state.set_state(ReviewSuggestion.waiting_comment)
     
-    await call.message.answer("✅ <b>Одобрение предложения</b>\n\nНапишите комментарий для пользователя:")
+    await call.message.answer(
+        "✅ <b>Одобрение предложения</b>\n\n"
+        "Напишите комментарий для пользователя:"
+    )
     await call.answer()
 
 
 @dp.callback_query(F.data.startswith("reject_"))
 async def reject_suggestion(call: CallbackQuery, state: FSMContext):
+    """Отклонение предложения"""
     suggestion_id = call.data.replace("reject_", "")
     
     await state.update_data(
@@ -810,17 +916,24 @@ async def reject_suggestion(call: CallbackQuery, state: FSMContext):
     )
     await state.set_state(ReviewSuggestion.waiting_comment)
     
-    await call.message.answer("❌ <b>Отклонение предложения</b>\n\nНапишите комментарий для пользователя:")
+    await call.message.answer(
+        "❌ <b>Отклонение предложения</b>\n\n"
+        "Напишите комментарий для пользователя:"
+    )
     await call.answer()
 
 
 @dp.message(ReviewSuggestion.waiting_comment)
 async def process_review_comment(message: Message, state: FSMContext):
+    """Обработка комментария к решению"""
     data = await state.get_data()
     suggestion_id = data['suggestion_id']
     action = data['action']
     comment = message.text
     
+    # Ищем пользователя из оригинального сообщения
+    # В реальном боте нужно сохранять данные в БД
+    # Для примера извлечем из текста сообщения
     try:
         original_msg = await bot.edit_message_reply_markup(
             chat_id=ADMIN_ID,
@@ -828,6 +941,7 @@ async def process_review_comment(message: Message, state: FSMContext):
             reply_markup=None
         )
         
+        # Извлекаем user_id из текста
         text = original_msg.caption or original_msg.text
         user_id = int(text.split("ID: ")[1].split(")")[0])
         
@@ -844,7 +958,10 @@ async def process_review_comment(message: Message, state: FSMContext):
             )
             admin_text = f"❌ Предложение #{suggestion_id[:8]} отклонено"
         
+        # Отправляем пользователю
         await bot.send_message(user_id, result_text)
+        
+        # Подтверждаем админу
         await message.answer(admin_text, reply_markup=admin_menu())
         
         logger.info(f"Предложение {suggestion_id} {action} администратором")
@@ -861,6 +978,7 @@ async def process_review_comment(message: Message, state: FSMContext):
 # =====================
 
 async def handle_download(message: Message, args: str):
+    """Обработка запроса на скачивание"""
     if is_banned(message.from_user.id):
         return await message.answer("🚫 Вы заблокированы")
     
@@ -873,6 +991,7 @@ async def handle_download(message: Message, args: str):
             "Возможно, пост был удален или ссылка устарела."
         )
     
+    # Проверка подписки
     required_channels = post.get('required_channels', ['main'])
     is_subscribed, missing = await check_subscription(message.from_user.id, required_channels)
     
@@ -883,12 +1002,15 @@ async def handle_download(message: Message, args: str):
             reply_markup=subscribe_keyboard(post_id, missing)
         )
     
+    # Увеличиваем счетчик скачиваний
     post['downloads'] = post.get('downloads', 0) + 1
+    
     await send_file_to_user(message, post)
 
 
 @dp.callback_query(F.data.startswith("check_"))
 async def recheck_subscription(call: CallbackQuery):
+    """Повторная проверка подписки"""
     if is_banned(call.from_user.id):
         return await call.answer("🚫 Вы заблокированы", show_alert=True)
     
@@ -902,7 +1024,9 @@ async def recheck_subscription(call: CallbackQuery):
     is_subscribed, missing = await check_subscription(call.from_user.id, required_channels)
     
     if is_subscribed:
+        # Увеличиваем счетчик скачиваний
         post['downloads'] = post.get('downloads', 0) + 1
+        
         await send_file_to_user(call.message, post)
         await call.answer("✅ Подписка подтверждена!")
     else:
@@ -914,9 +1038,13 @@ async def recheck_subscription(call: CallbackQuery):
 
 
 async def send_file_to_user(message: Message, post: dict):
+    """Отправка файла пользователю"""
     try:
         if "file" in post:
-            await message.answer(f"📦 <b>{post['title']}</b>\n\n⬇️ Загрузка файла...")
+            await message.answer(
+                f"📦 <b>{post['title']}</b>\n\n"
+                "⬇️ Загрузка файла..."
+            )
             await message.answer_document(
                 post["file"],
                 caption=f"✅ <b>{post['title']}</b>\n\n💎 Спасибо за использование YAKMODS!"
@@ -943,14 +1071,19 @@ async def send_file_to_user(message: Message, post: dict):
 
 @dp.message()
 async def unknown_message(message: Message):
+    """Обработка неизвестных сообщений"""
     if is_banned(message.from_user.id):
         return await message.answer("🚫 Вы заблокированы")
     
     if is_admin(message.from_user.id):
-        await message.answer("ℹ️ Используйте команду /start для доступа к меню", reply_markup=admin_menu())
+        await message.answer(
+            "ℹ️ Используйте команду /start для доступа к меню",
+            reply_markup=admin_menu()
+        )
     else:
         await message.answer(
-            "ℹ️ Используйте команду /start\n\n💎 YAKMODS - лучшие моды для ваших игр!",
+            "ℹ️ Используйте команду /start\n\n"
+            "💎 YAKMODS - лучшие моды для ваших игр!",
             reply_markup=main_menu()
         )
 
@@ -960,20 +1093,22 @@ async def unknown_message(message: Message):
 # =====================
 
 async def on_startup():
+    """Действия при запуске бота"""
     logger.info("🚀 Бот запущен!")
     try:
         bot_info = await bot.get_me()
         logger.info(f"Бот @{bot_info.username} готов к работе")
-        logger.info(f"Admin ID: {ADMIN_ID}")
     except Exception as e:
         logger.error(f"Ошибка при запуске: {e}")
 
 
 async def on_shutdown():
+    """Действия при остановке бота"""
     logger.info("⛔️ Бот остановлен!")
 
 
 async def main():
+    """Главная функция запуска"""
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
     
@@ -990,3 +1125,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Бот остановлен пользователем")
+
