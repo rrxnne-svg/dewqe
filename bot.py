@@ -65,6 +65,21 @@ bot = Bot(
 
 dp = Dispatcher()
 
+
+@dp.callback_query()
+async def _ignore_channel_callback_queries(call: CallbackQuery):
+    """Игнорировать callback'и, вызванные из сообщений в каналах.
+
+    Показываем краткий alert с указанием открыть бота в личных сообщениях.
+    Это предотвращает любые взаимодействия с ботом прямо в канале.
+    """
+    try:
+        if call.message and getattr(call.message, 'chat', None) and call.message.chat.type == "channel":
+            await call.answer("Откройте бота в личных сообщениях для взаимодействия.", show_alert=True)
+            return
+    except Exception:
+        return
+
 # Хранилища данных
 posts = {}  # {post_id: {data, downloads: 0}}
 users = set()  # Все пользователи
@@ -169,14 +184,15 @@ def download_keyboard(bot_username: str, post_id: str):
     return kb
 
 
-def subscribe_keyboard(post_id: str, missing: list):
-    """Клавиатура с ссылками на отсутствующие каналы и кнопкой проверки"""
+def subscribe_keyboard(bot_username: str, post_id: str, missing: list):
+    """Клавиатура с ссылками на отсутствующие каналы и deep-link кнопкой проверки"""
     buttons = []
     for ch in missing:
         # Allow both @name and full URL
         ch_name = ch if ch.startswith("@") else f"@{ch}"
         buttons.append([InlineKeyboardButton(text=ch_name, url=f"https://t.me/{ch_name.lstrip('@')}")])
-    buttons.append([InlineKeyboardButton(text="✅ Проверить подписки", callback_data=f"check_{post_id}")])
+    # Используем deep link, чтобы пользователь открыл бота и проверка выполнялась в приватном чате
+    buttons.append([InlineKeyboardButton(text="✅ Проверить подписки", url=f"https://t.me/{bot_username}?start=check_{post_id}")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -306,6 +322,12 @@ def is_owner(user_id: int) -> bool:
 @dp.message(Command("start"))
 async def start_handler(message: Message):
     """Обработчик команды /start"""
+    # Обрабатывать только в приватном чате — не показывать меню в каналах
+    try:
+        if message.chat.type != "private":
+            return
+    except Exception:
+        return
     user_id = message.from_user.id
     users.add(user_id)
     
@@ -547,10 +569,11 @@ async def get_mod_details(call: CallbackQuery):
     is_subscribed, missing = await check_subscription(call.from_user.id, required_channels)
     
     if not is_subscribed:
+        bot_username = (await bot.get_me()).username
         await call.message.answer(
             "⚠️ <b>Требуется подписка</b>\n\n"
             "Для скачивания этого мода подпишитесь на указанные каналы:",
-            reply_markup=subscribe_keyboard(post_id, missing)
+            reply_markup=subscribe_keyboard(bot_username, post_id, missing)
         )
         return await call.answer()
     
@@ -1917,10 +1940,11 @@ async def handle_download(message: Message, args: str):
     is_subscribed, missing = await check_subscription(message.from_user.id, required_channels)
     
     if not is_subscribed:
+        bot_username = (await bot.get_me()).username
         return await message.answer(
             "⚠️ <b>Требуется подписка</b>\n\n"
             "Для скачивания подпишитесь на указанные каналы:",
-            reply_markup=subscribe_keyboard(post_id, missing)
+            reply_markup=subscribe_keyboard(bot_username, post_id, missing)
         )
     
     # Увеличиваем счетчик скачиваний
@@ -1979,10 +2003,11 @@ async def download_mod(call: CallbackQuery):
     is_subscribed, missing = await check_subscription(call.from_user.id, required_channels)
     
     if not is_subscribed:
+        bot_username = (await bot.get_me()).username
         await call.message.answer(
             "⚠️ <b>Требуется подписка</b>\n\n"
             "Для скачивания подпишитесь на указанные каналы:",
-            reply_markup=subscribe_keyboard(post_id, missing)
+            reply_markup=subscribe_keyboard(bot_username, post_id, missing)
         )
         return await call.answer()
     
