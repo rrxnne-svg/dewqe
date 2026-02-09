@@ -19,7 +19,7 @@ from aiogram.exceptions import TelegramBadRequest
 # НАСТРОЙКИ
 # =====================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+TOKEN = os.getenv("TOKEN")
 ADMIN_ID = 7388744796
 CHANNELS = {
     "main": "@YAKMODS",
