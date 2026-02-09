@@ -65,21 +65,6 @@ bot = Bot(
 
 dp = Dispatcher()
 
-
-@dp.callback_query()
-async def _ignore_channel_callback_queries(call: CallbackQuery):
-    """Игнорировать callback'и, вызванные из сообщений в каналах.
-
-    Показываем краткий alert с указанием открыть бота в личных сообщениях.
-    Это предотвращает любые взаимодействия с ботом прямо в канале.
-    """
-    try:
-        if call.message and getattr(call.message, 'chat', None) and call.message.chat.type == "channel":
-            await call.answer("Откройте бота в личных сообщениях для взаимодействия.", show_alert=True)
-            return
-    except Exception:
-        return
-
 # Хранилища данных
 posts = {}  # {post_id: {data, downloads: 0}}
 users = set()  # Все пользователи
