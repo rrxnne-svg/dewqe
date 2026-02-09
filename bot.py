@@ -22,7 +22,7 @@ from aiogram.exceptions import TelegramBadRequest
 
 # Получаем данные из переменных окружения
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+ADMIN_ID = os.getenv("ADMIN_ID")
 
 # Каналы из переменных окружения
 CHANNELS = {
