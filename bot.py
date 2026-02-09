@@ -20,12 +20,10 @@ from aiogram.exceptions import TelegramBadRequest
 # НАСТРОЙКИ
 # =====================
 
-TOKEN = os.getenv("TOKEN")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = 7388744796
 CHANNELS = {
     "main": "@YAKMODS",
-    "updates": "@YAKMODS_UPDATES",  # Добавьте свои каналы
-    "news": "@YAKMODS_NEWS"
 }
 
 START_IMAGE = "https://cdn.discordapp.com/attachments/1044207552512135229/1470085336360026308/5D53110C-27D1-420C-BC26-0D4F7779F784.png"
